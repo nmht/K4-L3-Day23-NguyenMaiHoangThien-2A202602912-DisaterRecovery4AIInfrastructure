@@ -39,18 +39,86 @@ URL = {"a": "http://127.0.0.1:8001", "b": "http://127.0.0.1:8002"}
 
 
 def step(n, name, **kw):
-    """TODO: ghi 1 dòng {ts, iso, step, name, ...} vào LOG."""
-    raise NotImplementedError
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    ts = time.time()
+    kw.update({"ts": ts, "iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)), "step": n, "name": name})
+    line = json.dumps(kw)
+    print(line)
+    with open(LOG, "a") as f:
+        f.write(line + "\n")
 
 
 def confirm(auto: bool, msg: str) -> bool:
-    """TODO: auto=True -> True; ngược lại hỏi y/N. Đừng bỏ hàm này đi."""
-    raise NotImplementedError
+    if auto:
+        return True
+    return input(f"{msg} [y/N]: ").strip().lower() == "y"
 
 
 def run(primary: str, target: str, backend: str, auto: bool) -> dict:
-    """TODO: 7 bước ở trên."""
-    raise NotImplementedError
+    start_time = time.time()
+    
+    # 1. xac_nhan_outage
+    outage_detected = False
+    for _ in range(3):
+        try:
+            httpx.get(URL[primary] + "/readyz", timeout=1.0)
+        except Exception:
+            outage_detected = True
+            break
+        time.sleep(1)
+    step(1, "xac_nhan_outage", outage_detected=outage_detected)
+
+    # 2. thong_bao_incident
+    t_outage = None
+    try:
+        if pathlib.Path("chaos/chaos-events.jsonl").exists():
+            with open("chaos/chaos-events.jsonl") as f:
+                for line in f:
+                    data = json.loads(line)
+                    if data.get("event") == "chaos_injected" and data.get("region") == primary:
+                        t_outage = data.get("ts")
+    except Exception:
+        pass
+    step(2, "thong_bao_incident", t_outage=t_outage)
+
+    # 3. scale_gpu_pool (trigger failover)
+    if not confirm(auto, "Confirm failover to " + target + "?"):
+        return {"ok": False, "reason": "aborted by operator"}
+    
+    fo_result = fo.failover(target, backend, wait=60.0)
+    step(3, "scale_gpu_pool", result=fo_result)
+
+    # 4. verify_state_replica
+    try:
+        state_r = httpx.get(URL[target] + "/v1/state", timeout=2.0).json()
+    except Exception as e:
+        state_r = {"error": str(e)}
+    step(4, "verify_state_replica", state=state_r)
+
+    # 5. dns_cutover
+    step(5, "dns_cutover", cutover_ok=fo_result.get("ok", False))
+
+    # 6. verify_golden_signals
+    latencies = []
+    errors = 0
+    for _ in range(10):
+        t0 = time.time()
+        try:
+            r = httpx.get(URL[target] + "/v1/infer", timeout=2.0)
+            if r.status_code == 200:
+                latencies.append(time.time() - t0)
+            else:
+                errors += 1
+        except Exception:
+            errors += 1
+    
+    p95 = sorted(latencies)[int(len(latencies) * 0.95)] if latencies else None
+    step(6, "verify_golden_signals", p95_latency=p95, error_rate=errors/10.0)
+
+    # 7. post_incident
+    step(7, "post_incident", elapsed_s=time.time() - start_time, measure_cmd="python3 tools/measure_rto.py ...")
+    
+    return {"ok": fo_result.get("ok", False), "elapsed_s": time.time() - start_time}
 
 
 if __name__ == "__main__":

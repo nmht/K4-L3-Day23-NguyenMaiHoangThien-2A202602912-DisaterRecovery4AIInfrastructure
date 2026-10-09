@@ -64,6 +64,18 @@ def is_alive(region: str, timeout=1.5) -> bool:
 
 
 def pid_of(region: str) -> int | None:
+    if os.name == "nt":
+        import subprocess
+        port = "8001" if region == "a" else "8002"
+        try:
+            out = subprocess.check_output(f"netstat -ano | findstr :{port}", shell=True).decode()
+            for line in out.splitlines():
+                if "LISTENING" in line:
+                    return int(line.strip().split()[-1])
+        except Exception:
+            return None
+        return None
+
     f = PID_DIR / f"region-{region}.pid"
     if not f.exists():
         return None
@@ -93,10 +105,11 @@ def kill(region: str, mode: str, backend: str, force_both: bool, mock: bool):
         pid = pid_of(region)
         if pid is None:
             raise SystemExit(f"khong tim thay PID cua region-{region} trong {PID_DIR}")
-        # netblock: SIGSTOP -> TCP handshake vẫn xong nhưng không ai trả lời => request TREO
-        #           (đúng hành vi của iptables DROP ở tầng app)
-        # stop    : SIGKILL -> cổng đóng => ConnectError ngay
-        os.kill(pid, signal.SIGSTOP if mode == "netblock" else signal.SIGKILL)
+        if os.name == "nt":
+            import subprocess
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=False)
+        else:
+            os.kill(pid, signal.SIGSTOP if mode == "netblock" else signal.SIGKILL)
     else:
         svc = f"serving-{region}"
         if mode == "stop":
