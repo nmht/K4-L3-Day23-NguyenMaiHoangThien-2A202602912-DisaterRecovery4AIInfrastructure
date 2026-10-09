@@ -3,3 +3,7 @@
 {"step": "3_scale_pool", "ts": 1791521148.9207478, "iso": "2026-10-09T04:45:48Z"}
 {"step": "4_wait_ready", "ready": true, "time_taken": 6.256954908370972, "ts": 1791521155.1837058, "iso": "2026-10-09T04:45:55Z"}
 {"step": "5_dns_cutover", "active_region": "b", "ts": 1791521155.1857, "iso": "2026-10-09T04:45:55Z"}
+{"step": "1_verify_target", "state": {"error": "mocked: target khong bao gio ready"}, "ts": 1791522366.2260368, "iso": "2026-10-09T05:06:06Z"}
+{"step": "2_restore_snapshot", "rpo_seconds": 84.63, "docs_lost": 57, "embed_model_version": "test", "ts": 1791522366.2304463, "iso": "2026-10-09T05:06:06Z"}
+{"step": "3_scale_pool", "ts": 1791522366.2320938, "iso": "2026-10-09T05:06:06Z"}
+{"step": "4_wait_ready", "ready": false, "reason": "timeout", "ts": 1791522367.2477582, "iso": "2026-10-09T05:06:07Z"}
